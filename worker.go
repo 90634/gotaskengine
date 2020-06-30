@@ -10,5 +10,5 @@ type Worker interface {
 type FuncWorker func(c <-chan interface{}, group *sync.WaitGroup)
 
 func (f FuncWorker) Working(c <-chan interface{}, group *sync.WaitGroup) {
-	f(c, group)
+	go f(c, group)
 }

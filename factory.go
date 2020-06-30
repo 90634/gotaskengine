@@ -59,16 +59,21 @@ func (e *emptyFactory) Stop() {
 	e.running = false
 }
 
+func NewFactory() Factory {
+	f := new(emptyFactory)
+	return f
+}
+
 var ErrFactoryRunning = errors.New("factory is already running")
 
 // defaultFactory
 var defaultFactory = new(emptyFactory)
 
-func AddLine(c Conveyor) error {
+func AddLine(c Conveyor) {
 	defaultFactory.AddLine(c)
 }
 
-func Run() error {
+func Run() {
 	defaultFactory.Run()
 }
 
