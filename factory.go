@@ -42,7 +42,7 @@ func (e *emptyFactory) Run() {
 	}
 
 	for _, line := range e.lines {
-		line.Run()
+		go line.Run()
 	}
 
 	e.running = true
