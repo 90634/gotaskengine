@@ -3,13 +3,12 @@ package gotaskengine
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 )
 
 type Toy struct {
-	Shape  string
+	Shape  int
 	Action string
 }
 
@@ -24,11 +23,11 @@ type ToyCat struct {
 }
 
 func TestFactory(t *testing.T) {
-	toyDogLine := NewConveyor(64)
-	toyCatLine := NewConveyor(64)
+	toyDogLine := NewConveyor(64, 4)
+	toyCatLine := NewConveyor(64, 4)
 
-	toyDogLine.AddWorker(FuncWorker(toyDogWorker), 2)
-	toyCatLine.AddWorker(FuncWorker(toyCatWorker), 2)
+	toyDogLine.SetWorker(FuncWorker(toyDogWorker))
+	toyCatLine.SetWorker(FuncWorker(toyCatWorker))
 
 	toyFactory := NewFactory()
 	toyFactory.AddLine(toyDogLine)
@@ -36,48 +35,71 @@ func TestFactory(t *testing.T) {
 
 	toyFactory.Run()
 
+	stopC := make(chan bool)
 	go func() {
+		i := 0
 		for {
 			// you can insert this task into a database and set the status "not complete",then
 			// you can retrieve these "not complete" tasks from database, and put them back in the queue
-			err := toyCatLine.PutPart(ToyCat{Toy{"four legs", "Meow～"}}, time.Second*2)
+			err := toyCatLine.PutPart(ToyCat{Toy{i, "Meow~"}}, time.Second*2)
 			if errors.Is(err, ErrLineIsFull) {
 				t.Error(err.Error())
 				// here, you can use github.com/shirou/gopsutil to get CPU's load, if it's ok, you can add a worker and retry.
+			}
+			if errors.Is(err, ErrLineIsStop) {
+				t.Log(" toyCatLine stoped")
+				break
 			}
 
-			time.Sleep(time.Second * 1)
-			err = toyDogLine.PutPart(ToyDog{Toy{"two ears", "Wu~"}}, time.Second*2)
+			//time.Sleep(time.Second * 1)
+			i++
+		}
+		fmt.Printf("toyCat----%d----\n", i-1)
+		stopC <- true
+	}()
+
+	go func() {
+		i := 0
+		for {
+			err := toyDogLine.PutPart(ToyDog{Toy{i, "Wang~"}}, time.Second*2)
 			if errors.Is(err, ErrLineIsFull) {
 				t.Error(err.Error())
 				// here, you can use github.com/shirou/gopsutil to get CPU's load, if it's ok, you can add a worker and retry.
 			}
+			if errors.Is(err, ErrLineIsStop) {
+				t.Log(" toyDogLine stoped")
+				break
+			}
+
+			//time.Sleep(time.Second * 1)
+			i++
 		}
+		fmt.Printf("toyDog----%d----\n", i-1)
+		stopC <- true
 	}()
 
 	// should wait stop signal
-	time.Sleep(time.Second * 30)
+	time.Sleep(time.Second * 5)
+	t.Log("Factory stopped")
 	toyFactory.Stop()
+	<-stopC
+	<-stopC
 }
 
-func toyDogWorker(c <-chan interface{}, group *sync.WaitGroup) {
-	defer group.Done()
+func toyDogWorker(part Part, done FuncDone) {
+	defer done()
 
-	for p := range c {
-		dogPart := p.(ToyDog)
-		fmt.Println(dogPart.Shape, dogPart.Action)
-		// do something
-		// In some cases，break the loop
-	}
+	dogPart := part.(ToyDog)
+	time.Sleep(time.Second * 1)
+	fmt.Println(dogPart.Shape, dogPart.Action)
+	// do something
 }
 
-func toyCatWorker(c <-chan interface{}, group *sync.WaitGroup) {
-	defer group.Done()
+func toyCatWorker(part Part, done FuncDone) {
+	defer done()
 
-	for p := range c {
-		catPart := p.(ToyCat)
-		fmt.Println(catPart.Shape, catPart.Action)
-		// do something
-		// In some cases，break the loop
-	}
+	catPart := part.(ToyCat)
+	time.Sleep(time.Second * 1)
+	fmt.Println(catPart.Shape, catPart.Action)
+	// do something
 }

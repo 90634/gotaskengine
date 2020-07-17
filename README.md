@@ -8,8 +8,6 @@ Recently, i am doing some work on handling multi-tasks in multi-coroutines.
 
 There are many types of tasks, like A,B,C. The handle method is different if the type of task is different. When requests are coming, i need handle them in multi-coroutines.
 
-For example, the order of requests is AAAABBCCCABCCAAABBC....
-
 ## How?
 
 This is similar to a factory although i never seen it myself.
