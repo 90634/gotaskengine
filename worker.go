@@ -1,14 +1,16 @@
 package gotaskengine
 
-import "sync"
+// FuncDone define a function which is called by worker when a worker have done it's work
+type FuncDone func()
 
 // Worker  worker take parts from conveyor and handle them
 type Worker interface {
-	Working(c <-chan interface{}, group *sync.WaitGroup)
+	Working(part Part, done FuncDone)
 }
 
-type FuncWorker func(c <-chan interface{}, group *sync.WaitGroup)
+// FuncWorker is the implementation of Worker interface
+type FuncWorker func(part Part, done FuncDone)
 
-func (f FuncWorker) Working(c <-chan interface{}, group *sync.WaitGroup) {
-	go f(c, group)
+func (f FuncWorker) Working(part Part, done FuncDone) {
+	go f(part, done)
 }

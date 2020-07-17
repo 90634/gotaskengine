@@ -9,11 +9,8 @@ import (
 // Conveyor put parts on it, and workers take parts from it
 type Conveyor interface {
 
-	// GetSelf return the instance
-	GetSelf() chan interface{}
-
-	// AddWorker add n workers on the conveyor belt
-	AddWorker(w Worker, n int)
+	// SetWorker set the instance of Worker which work on the conveyor belt
+	SetWorker(w Worker)
 
 	// PutPart put parts on conveyor belt, if the conveyor is full, return ErrLineIsFull
 	PutPart(p Part, duration time.Duration) error
@@ -26,61 +23,78 @@ type Conveyor interface {
 }
 
 type emptyConveyor struct {
-	pipeline chan interface{}
-	workers  []Worker
-	running  bool
-	group    sync.WaitGroup
-	mutex    sync.Mutex
+	running    bool
+	mutex      sync.Mutex
+	group      sync.WaitGroup
+	pipeline   chan interface{}
+	worker     Worker
+	workerChan chan struct{}
 }
 
 // ErrLineIsFull conveyor is full, can not puts any part. Client judges whether to add more workers according to the CPU's load.
 var ErrLineIsFull = errors.New("too many tasks, add a worker please")
-
-func (e *emptyConveyor) GetSelf() chan interface{} {
-	return e.pipeline
-}
+var ErrLineIsStop = errors.New("the conveyor is stopped")
 
 func (e *emptyConveyor) Run() {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
-	for _, w := range e.workers {
-		w.Working(e.pipeline, &e.group)
-		e.group.Add(1)
-	}
 
+	if e.running {
+		return
+	}
 	e.running = true
+
+	go func() {
+		for p := range e.pipeline {
+			e.workerChan <- struct{}{} // block here
+			e.group.Add(1)
+			e.worker.Working(p, func() {
+				<-e.workerChan
+				e.group.Done()
+			})
+		}
+	}()
 }
 
-func (e *emptyConveyor) AddWorker(w Worker, n int) {
+func (e *emptyConveyor) SetWorker(w Worker) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
-	for i := 0; i < n; i++ {
-		e.workers = append(e.workers, w)
-	}
-	if e.running {
-		w.Working(e.pipeline, &e.group)
-	}
+	e.worker = w
 }
 
 func (e *emptyConveyor) PutPart(p Part, duration time.Duration) error {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+	if !e.running {
+		return ErrLineIsStop
+	}
+
 	tm := time.NewTimer(duration)
 	select {
-	// if e.pipeline is closed ,that ok?
 	case e.pipeline <- p:
 	case <-tm.C:
 		return ErrLineIsFull
 	}
 
+	tm.Stop()
 	return nil
 }
 
 func (e *emptyConveyor) Stop() {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	e.running = false
 	close(e.pipeline)
 	e.group.Wait()
 }
 
-func NewConveyor(cap int) Conveyor {
+// NewConveyor create an emptyConveyor.
+// cap is the capacity of the Conveyor.
+// max is the maximum number of workers.
+func NewConveyor(cap int, max int) Conveyor {
 	c := new(emptyConveyor)
 	c.pipeline = make(chan interface{}, cap)
+	c.workerChan = make(chan struct{}, max)
 	return c
 }

@@ -52,11 +52,11 @@ func (e *emptyFactory) Stop() {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	for _, line := range e.lines {
-		line.Stop()
-	}
-
 	e.running = false
+
+	for _, line := range e.lines {
+		go line.Stop()
+	}
 }
 
 func NewFactory() Factory {
