@@ -8,7 +8,7 @@ import (
 )
 
 type Toy struct {
-	Shape  int
+	Number int
 	Action string
 }
 
@@ -17,53 +17,24 @@ type ToyDog struct {
 	//other
 }
 
-type ToyCat struct {
-	Toy
-	//other
-}
-
 func TestFactory(t *testing.T) {
-	toyDogLine := NewConveyor(64, 4)
-	toyCatLine := NewConveyor(64, 4)
-
-	toyDogLine.SetWorker(FuncWorker(toyDogWorker))
-	toyCatLine.SetWorker(FuncWorker(toyCatWorker))
+	DogLegsLine := NewConveyor(64, FuncWorker(dogLegsWorker), 4, nil)
+	DogBodyLine := NewConveyor(64, FuncWorker(dogBodyWorker), 8, DogLegsLine)
 
 	toyFactory := NewFactory()
-	toyFactory.AddLine(toyDogLine)
-	toyFactory.AddLine(toyCatLine)
+	_ = toyFactory.AddLine(DogBodyLine)
+	_ = toyFactory.AddLine(DogLegsLine)
 
 	toyFactory.Run()
 
-	stopC := make(chan bool)
-	go func() {
-		i := 0
-		for {
-			// you can insert this task into a database and set the status "not complete",then
-			// you can retrieve these "not complete" tasks from database, and put them back in the queue
-			err := toyCatLine.PutPart(ToyCat{Toy{i, "Meow~"}}, time.Second*2)
-			if errors.Is(err, ErrLineIsFull) {
-				t.Error(err.Error())
-				// here, you can use github.com/shirou/gopsutil to get CPU's load, if it's ok, you can add a worker and retry.
-			}
-			if errors.Is(err, ErrLineIsStop) {
-				t.Log(" toyCatLine stoped")
-				break
-			}
-
-			//time.Sleep(time.Second * 1)
-			i++
-		}
-		fmt.Printf("toyCat----%d----\n", i-1)
-		stopC <- true
-	}()
+	//stopSignC := make(chan bool)
 
 	go func() {
 		i := 0
 		for {
-			err := toyDogLine.PutPart(ToyDog{Toy{i, "Wang~"}}, time.Second*2)
+			err := DogBodyLine.PutPart(ToyDog{Toy{i, "Wang~"}}, time.Second*2)
 			if errors.Is(err, ErrLineIsFull) {
-				t.Error(err.Error())
+				t.Error(err)
 				// here, you can use github.com/shirou/gopsutil to get CPU's load, if it's ok, you can add a worker and retry.
 			}
 			if errors.Is(err, ErrLineIsStop) {
@@ -74,32 +45,34 @@ func TestFactory(t *testing.T) {
 			//time.Sleep(time.Second * 1)
 			i++
 		}
-		fmt.Printf("toyDog----%d----\n", i-1)
-		stopC <- true
+		fmt.Printf("toyDog total :%d\n", i-1)
 	}()
 
 	// should wait stop signal
-	time.Sleep(time.Second * 5)
+	time.Sleep(time.Second * 10)
 	t.Log("Factory stopped")
 	toyFactory.Stop()
-	<-stopC
-	<-stopC
 }
 
-func toyDogWorker(part Part, done FuncDone) {
+func dogBodyWorker(part Part, done FuncDone, next Conveyor) {
 	defer done()
 
 	dogPart := part.(ToyDog)
 	time.Sleep(time.Second * 1)
-	fmt.Println(dogPart.Shape, dogPart.Action)
+	fmt.Printf("ToyDog %d body is ok\n", dogPart.Number)
 	// do something
+
+	err := next.PutPart(dogPart, time.Second*5)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
 }
 
-func toyCatWorker(part Part, done FuncDone) {
+func dogLegsWorker(part Part, done FuncDone, next Conveyor) {
 	defer done()
 
-	catPart := part.(ToyCat)
+	dogPart := part.(ToyDog)
 	time.Sleep(time.Second * 1)
-	fmt.Println(catPart.Shape, catPart.Action)
+	fmt.Printf("ToyDog %d legs is ok, %s\n", dogPart.Number, dogPart.Action)
 	// do something
 }

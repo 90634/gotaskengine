@@ -7,7 +7,7 @@ import (
 
 type Factory interface {
 	// AddLine add conveyor to the factory.
-	AddLine(c Conveyor)
+	AddLine(c Conveyor) error
 
 	// Run lets all conveyors running
 	Run()
@@ -18,19 +18,32 @@ type Factory interface {
 
 // emptyFactory a instance of Factory interface
 type emptyFactory struct {
-	lines   []Conveyor
+	// it holds all conveyor
+	lines   Graph
 	running bool
 	mutex   sync.Mutex
 }
 
-func (e *emptyFactory) AddLine(c Conveyor) {
+var ErrFactoryIsRunning = errors.New("the factory is running")
+
+func (e *emptyFactory) AddLine(c Conveyor) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
-	e.lines = append(e.lines, c)
-
 	if e.running {
-		c.Run()
+		return ErrFactoryIsRunning
 	}
+
+	var child *Node
+	node := &Node{value: c, child: nil, parents: []*Node{}}
+
+	if c.Next() != nil {
+		child = &Node{value: c.Next(), child: nil, parents: []*Node{}}
+		child.parents = append(child.parents, node)
+		e.lines.addNode(child)
+		node.child = child
+	}
+	e.lines.addNode(node)
+	return nil
 }
 
 func (e *emptyFactory) Run() {
@@ -41,9 +54,8 @@ func (e *emptyFactory) Run() {
 		return
 	}
 
-	for _, line := range e.lines {
-		go line.Run()
-	}
+	e.lines.makeIndexes()
+	e.lines.runFromLeaves()
 
 	e.running = true
 }
@@ -52,11 +64,12 @@ func (e *emptyFactory) Stop() {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
+	if !e.running {
+		return
+	}
 	e.running = false
 
-	for _, line := range e.lines {
-		go line.Stop()
-	}
+	e.lines.stopFromRoot()
 }
 
 func NewFactory() Factory {
@@ -69,8 +82,8 @@ var ErrFactoryRunning = errors.New("factory is already running")
 // defaultFactory
 var defaultFactory = new(emptyFactory)
 
-func AddLine(c Conveyor) {
-	defaultFactory.AddLine(c)
+func AddLine(c Conveyor) error {
+	return defaultFactory.AddLine(c)
 }
 
 func Run() {
