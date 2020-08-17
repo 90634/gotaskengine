@@ -2,119 +2,133 @@ package gotaskengine
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
 
-// Conveyor put parts on it, and workers take parts from it
-type Conveyor interface {
+// ConveyorI receives parts, and workers take parts from it.
+type IConveyor interface {
 
-	// PutPart put parts on conveyor belt, if the conveyor is full, return ErrLineIsFull
+	// PutPart puts parts on conveyor belt, if a conveyor is full, return ErrLineIsFull.
 	PutPart(p Part, duration time.Duration) error
 
-	// Run lets the conveyor rolling
+	// GetPart return a part and the status of conveyor if closed.
+	GetPart() (Part, bool)
+
+	// Run lets the conveyor rolling.
 	Run()
 
-	// Stop stop the conveyor and wait workers finish their work
+	// Stop stops a conveyor.
 	Stop()
-
-	// Next return the only next Conveyor which parts from this flows to the next.
-	Next() Conveyor
 }
 
-type emptyConveyor struct {
-	running    bool
-	mutex      sync.Mutex
-	group      sync.WaitGroup
-	worker     Worker
-	next       Conveyor         // a worker will have handled a part, then put the part to the only next conveyor.
-	pipeline   chan interface{} // a part channel.
-	workersC   chan struct{}
-	emptySignC chan struct{}
+type TConveyor struct {
+	status       int32          // status of the conveyor.
+	rwmutex      sync.RWMutex   // keep multi-thread safety.
+	handler      FuncWork       // handler defines how to handle a part on the conveyor
+	workerMaxCnt int            // max limit of worker.
+	workerMinCnt int            // min limit of worker.
+	workersC     chan IWorker   // hold all running worker.
+	StopSignC    chan struct{}  // receive stop signal.
+	pipeline     chan Part      // a part channel.
+	checkTime    *time.Ticker   // for auto-adjust worker's count.
+	wg           sync.WaitGroup // for wait all workers are stopped.
 }
 
 // ErrLineIsFull conveyor is full, can not puts any part. Client judges whether to add more workers according to the CPU's load.
 var ErrLineIsFull = errors.New("too many tasks, add a worker please")
-var ErrLineIsStop = errors.New("the conveyor is stopped")
+var ErrLineStopped = errors.New("the conveyor is stopped")
 
-func (c *emptyConveyor) Run() {
-	c.mutex.Lock()
-	if c.running {
-		c.mutex.Unlock()
-		return
-	}
-	c.running = true
-	c.mutex.Unlock()
-
-	done := func() {
-		c.group.Done()
-		<-c.workersC
-	}
-
-	go func() {
-		for p := range c.pipeline {
-			c.workersC <- struct{}{} // blocked here
-			c.group.Add(1)
-			c.worker.Working(p, done, c.next)
-		}
-		c.emptySignC <- struct{}{}
-	}()
-}
-
-func (c *emptyConveyor) PutPart(p Part, duration time.Duration) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	if !c.running {
-		return ErrLineIsStop
+func (c *TConveyor) PutPart(p Part, duration time.Duration) error {
+	c.rwmutex.RLock()
+	defer c.rwmutex.RUnlock()
+	if c.status == StatusStop {
+		return ErrLineStopped
 	}
 
 	tm := time.NewTimer(duration)
+	defer tm.Stop()
+
 	select {
 	case c.pipeline <- p:
 	case <-tm.C:
 		return ErrLineIsFull
 	}
-
-	tm.Stop()
 	return nil
 }
 
-func (c *emptyConveyor) Stop() {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+func (c *TConveyor) GetPart() (Part, bool) {
+	p, ok := <-c.pipeline
+	return p, ok
+}
 
-	if !c.running {
+func (c *TConveyor) Run() {
+	c.rwmutex.Lock()
+	if c.status != StatusNew {
+		c.rwmutex.Unlock()
 		return
 	}
+	c.status = StatusRun
+	c.rwmutex.Unlock()
 
-	c.running = false
+	w := NewWorker(c, c.handler)
+	go w.Working()
+	c.workersC <- w
+	c.wg.Add(1)
+	for {
+		select {
+		case <-c.StopSignC:
+			for w := range c.workersC {
+				w.Stop()
+				c.wg.Done()
+				return
+			}
+		case <-c.checkTime.C:
+			if len(c.pipeline) > 0 && len(c.workersC) < c.workerMaxCnt {
+				w := NewWorker(c, c.handler)
+				go w.Working()
+				c.workersC <- w
+				c.wg.Add(1)
+				fmt.Println("add 1")
+			} else if len(c.pipeline) == 0 && len(c.workersC) > c.workerMinCnt {
+				w := <-c.workersC
+				w.Stop()
+				c.wg.Done()
+				fmt.Println("sub 1")
+			}
+		}
+	}
+}
 
-	// stop receive parts
+func (c *TConveyor) Stop() {
+	c.rwmutex.Lock()
+	if c.status != StatusRun {
+		c.rwmutex.Unlock()
+		return
+	}
+	c.status = StatusStop
+	c.rwmutex.Unlock()
+
+	c.checkTime.Stop()
+	close(c.StopSignC)
+
+	// wait all workers of the conveyor exit.
+	c.wg.Wait()
+	close(c.workersC)
 	close(c.pipeline)
-
-	// protect c.group, can't call c.group.Wait at this time.
-	<-c.emptySignC
-
-	// wait all workers of the conveyor finish.
-	c.group.Wait()
 }
 
-func (c *emptyConveyor) Next() Conveyor {
-	return c.next
-}
-
-// NewConveyor create an emptyConveyor.
-// cap is the capacity of the Conveyor.
-// max is the maximum number of workers.
-func NewConveyor(cap int, w Worker, maxWorkers int, next Conveyor) Conveyor {
-	c := new(emptyConveyor)
-
-	c.pipeline = make(chan interface{}, cap)
-	c.worker = w
-	c.workersC = make(chan struct{}, maxWorkers)
-	c.next = next
-
-	c.emptySignC = make(chan struct{}, 1)
-
+// NewConveyor create a conveyor instance.
+func NewConveyor(pipeCap int, handler FuncWork, maxWorkerCnt, minWokerCnt int, interval time.Duration) IConveyor {
+	c := new(TConveyor)
+	c.status = StatusNew
+	c.pipeline = make(chan Part, pipeCap)
+	c.handler = handler
+	c.workerMinCnt = maxWorkerCnt
+	c.workerMinCnt = minWokerCnt
+	c.workersC = make(chan IWorker, maxWorkerCnt)
+	c.StopSignC = make(chan struct{})
+	c.checkTime = time.NewTicker(interval)
 	return c
 }

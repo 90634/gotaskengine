@@ -8,7 +8,7 @@ import (
 )
 
 type Toy struct {
-	Number int
+	Id     int
 	Action string
 }
 
@@ -17,28 +17,38 @@ type ToyDog struct {
 	//other
 }
 
+var ToyFactory IFactory
+
 func TestFactory(t *testing.T) {
-	DogLegsLine := NewConveyor(64, FuncWorker(dogLegsWorker), 4, nil)
-	DogBodyLine := NewConveyor(64, FuncWorker(dogBodyWorker), 8, DogLegsLine)
+	dogLegsLine := NewConveyor(16, FuncWork(dogLegsWorker), 8, 1, time.Second)
+	dogBodyLine := NewConveyor(16, FuncWork(dogBodyWorker), 8, 1, time.Second)
 
-	toyFactory := NewFactory()
-	_ = toyFactory.AddLine(DogBodyLine)
-	_ = toyFactory.AddLine(DogLegsLine)
+	ToyFactory = NewFactory()
 
-	toyFactory.Run()
+	err := ToyFactory.AddLine("dogBodyLine", dogBodyLine)
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = ToyFactory.AddLine("dogLegsLine", dogLegsLine)
+	if err != nil {
+		t.Error(err)
+	}
+
+	ToyFactory.Run()
 
 	//stopSignC := make(chan bool)
 
 	go func() {
 		i := 0
 		for {
-			err := DogBodyLine.PutPart(ToyDog{Toy{i, "Wang~"}}, time.Second*2)
+			err := ToyFactory.GetLine("dogBodyLine").PutPart(ToyDog{Toy{i, "Wang~"}}, time.Second*1)
 			if errors.Is(err, ErrLineIsFull) {
-				t.Error(err)
+				i--
 				// here, you can use github.com/shirou/gopsutil to get CPU's load, if it's ok, you can add a worker and retry.
 			}
-			if errors.Is(err, ErrLineIsStop) {
-				t.Log(" toyDogLine stoped")
+			if errors.Is(err, ErrLineStopped) {
+				t.Log(" dogBodyLine stoped")
 				break
 			}
 
@@ -49,30 +59,26 @@ func TestFactory(t *testing.T) {
 	}()
 
 	// should wait stop signal
-	time.Sleep(time.Second * 10)
+	time.Sleep(time.Second * 30)
 	t.Log("Factory stopped")
-	toyFactory.Stop()
+	ToyFactory.Stop()
 }
 
-func dogBodyWorker(part Part, done FuncDone, next Conveyor) {
-	defer done()
-
+func dogBodyWorker(part Part) {
 	dogPart := part.(ToyDog)
 	time.Sleep(time.Second * 1)
-	fmt.Printf("ToyDog %d body is ok\n", dogPart.Number)
+	fmt.Printf("ToyDog %d body is ok\n", dogPart.Id)
 	// do something
 
-	err := next.PutPart(dogPart, time.Second*5)
+	err := ToyFactory.GetLine("dogLegsLine").PutPart(dogPart, time.Second*5)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println("1111: ", err)
 	}
 }
 
-func dogLegsWorker(part Part, done FuncDone, next Conveyor) {
-	defer done()
-
+func dogLegsWorker(part Part) {
 	dogPart := part.(ToyDog)
 	time.Sleep(time.Second * 1)
-	fmt.Printf("ToyDog %d legs is ok, %s\n", dogPart.Number, dogPart.Action)
+	fmt.Printf("ToyDog %d legs is ok, %s\n", dogPart.Id, dogPart.Action)
 	// do something
 }

@@ -12,6 +12,9 @@ There are many types of tasks, like A,B,C. The handle method is different if the
 
 This is similar to a factory although i never seen it myself.
 
+Thinking it in the mind:
+
+There is factory on somewhere. And there are some conveyors is rolling in this factory.
 It should be like this:
 
 There are some conveyors is rolling in a factory. 

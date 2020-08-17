@@ -3,93 +3,75 @@ package gotaskengine
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 )
 
-type Factory interface {
+type IFactory interface {
 	// AddLine add conveyor to the factory.
-	AddLine(c Conveyor) error
+	AddLine(name string, c IConveyor) error
 
-	// Run lets all conveyors running
+	// Run lets all conveyors running.
 	Run()
 
-	// Stop lets all conveyors stop
+	// Stop lets all conveyors stop.
 	Stop()
+
+	// GetLine
+	GetLine(name string) IConveyor
 }
 
 // emptyFactory a instance of Factory interface
-type emptyFactory struct {
-	// it holds all conveyor
-	lines   Graph
-	running bool
-	mutex   sync.Mutex
+type TFactory struct {
+	status int32
+	lines  map[string]IConveyor // it holds all conveyor
+	wg     sync.WaitGroup       // for wait all workers are stopped.
 }
 
-var ErrFactoryIsRunning = errors.New("the factory is running")
+var ErrUnallowed = errors.New("the factory is not allowed to add new conveyor")
 
-func (e *emptyFactory) AddLine(c Conveyor) error {
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-	if e.running {
-		return ErrFactoryIsRunning
+func (f *TFactory) AddLine(name string, c IConveyor) error {
+	if atomic.LoadInt32(&f.status) != StatusNew {
+		return ErrUnallowed
 	}
 
-	var child *Node
-	node := &Node{value: c, child: nil, parents: []*Node{}}
-
-	if c.Next() != nil {
-		child = &Node{value: c.Next(), child: nil, parents: []*Node{}}
-		child.parents = append(child.parents, node)
-		e.lines.addNode(child)
-		node.child = child
-	}
-	e.lines.addNode(node)
+	f.lines[name] = c
 	return nil
 }
 
-func (e *emptyFactory) Run() {
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
+func (f *TFactory) GetLine(name string) IConveyor {
+	return f.lines[name]
+}
 
-	if e.running {
+func (f *TFactory) Run() {
+	swapped := atomic.CompareAndSwapInt32(&f.status, StatusNew, StatusRun)
+	if !swapped {
 		return
 	}
 
-	e.lines.makeIndexes()
-	e.lines.runFromLeaves()
-
-	e.running = true
+	for _, c := range f.lines {
+		go c.Run()
+		f.wg.Add(1)
+	}
 }
 
-func (e *emptyFactory) Stop() {
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-
-	if !e.running {
+func (f *TFactory) Stop() {
+	swapped := atomic.CompareAndSwapInt32(&f.status, StatusRun, StatusStop)
+	if !swapped {
 		return
 	}
-	e.running = false
 
-	e.lines.stopFromRoot()
+	for _, l := range f.lines {
+		go func(c IConveyor) {
+			c.Stop()
+			f.wg.Done()
+		}(l)
+	}
+
+	f.wg.Wait()
 }
 
-func NewFactory() Factory {
-	f := new(emptyFactory)
+func NewFactory() IFactory {
+	f := new(TFactory)
+	f.lines = make(map[string]IConveyor)
 	return f
-}
-
-var ErrFactoryRunning = errors.New("factory is already running")
-
-// defaultFactory
-var defaultFactory = new(emptyFactory)
-
-func AddLine(c Conveyor) error {
-	return defaultFactory.AddLine(c)
-}
-
-func Run() {
-	defaultFactory.Run()
-}
-
-func Stop() {
-	defaultFactory.Stop()
 }
