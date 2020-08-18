@@ -26,11 +26,11 @@ func (w *TWorker) Working() {
 
 	for {
 		part, ok := w.taskPool.GetPart()
-		if !ok {
+		if ok {
+			w.taskHandler(part)
+		} else {
 			atomic.StoreInt32(&w.status, StatusStop)
 		}
-
-		w.taskHandler(part)
 
 		if atomic.LoadInt32(&w.status) == StatusStop {
 			return
