@@ -58,7 +58,7 @@ func TestFactory(t *testing.T) {
 		fmt.Printf("toyDog total :%d\n", i-1)
 	}()
 
-	// should wait stop signal
+	// wait stop signal
 	time.Sleep(time.Second * 30)
 	t.Log("Factory stopped")
 	ToyFactory.Stop()
@@ -68,7 +68,7 @@ func dogBodyWorker(part Part) {
 	dogPart := part.(ToyDog)
 	time.Sleep(time.Second * 1)
 	fmt.Printf("ToyDog %d body is ok\n", dogPart.Id)
-	// do something
+	// do stuff here
 
 	err := ToyFactory.GetLine("dogLegsLine").PutPart(dogPart, time.Second*5)
 	if err != nil {
@@ -80,5 +80,5 @@ func dogLegsWorker(part Part) {
 	dogPart := part.(ToyDog)
 	time.Sleep(time.Second * 1)
 	fmt.Printf("ToyDog %d legs is ok, %s\n", dogPart.Id, dogPart.Action)
-	// do something
+	// do stuff here
 }
