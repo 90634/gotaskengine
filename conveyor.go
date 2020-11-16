@@ -82,8 +82,8 @@ func (c *TConveyor) Run() {
 			for w := range c.workersC {
 				w.Stop()
 				c.wg.Done()
-				return
 			}
+			return
 		case <-c.checkTime.C:
 			if len(c.pipeline) > 0 && len(c.workersC) < c.workerMaxCnt {
 				w := NewWorker(c, c.handler)
@@ -125,7 +125,7 @@ func NewConveyor(pipeCap int, handler FuncWork, maxWorkerCnt, minWokerCnt int, i
 	c.status = StatusNew
 	c.pipeline = make(chan Part, pipeCap)
 	c.handler = handler
-	c.workerMinCnt = maxWorkerCnt
+	c.workerMaxCnt = maxWorkerCnt
 	c.workerMinCnt = minWokerCnt
 	c.workersC = make(chan IWorker, maxWorkerCnt)
 	c.StopSignC = make(chan struct{})

@@ -20,8 +20,8 @@ type ToyDog struct {
 var ToyFactory IFactory
 
 func TestFactory(t *testing.T) {
-	dogLegsLine := NewConveyor(16, FuncWork(dogLegsWorker), 8, 1, time.Second)
-	dogBodyLine := NewConveyor(16, FuncWork(dogBodyWorker), 8, 1, time.Second)
+	dogLegsLine := NewConveyor(16, FuncWork(dogLegsWorker), 8, 1, time.Second*5)
+	dogBodyLine := NewConveyor(16, FuncWork(dogBodyWorker), 8, 1, time.Second*2)
 
 	ToyFactory = NewFactory()
 
@@ -54,8 +54,8 @@ func TestFactory(t *testing.T) {
 
 			//time.Sleep(time.Second * 1)
 			i++
+			fmt.Printf("toyDog total :%d\n", i-1)
 		}
-		fmt.Printf("toyDog total :%d\n", i-1)
 	}()
 
 	// wait stop signal
@@ -66,7 +66,7 @@ func TestFactory(t *testing.T) {
 
 func dogBodyWorker(part Part) {
 	dogPart := part.(ToyDog)
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 3)
 	fmt.Printf("ToyDog %d body is ok\n", dogPart.Id)
 	// do stuff here
 
@@ -78,7 +78,7 @@ func dogBodyWorker(part Part) {
 
 func dogLegsWorker(part Part) {
 	dogPart := part.(ToyDog)
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 2)
 	fmt.Printf("ToyDog %d legs is ok, %s\n", dogPart.Id, dogPart.Action)
 	// do stuff here
 }
